@@ -1,0 +1,163 @@
+import gi
+import pathlib
+gi.require_version(namespace='Gtk', version='4.0')
+gi.require_version(namespace='Adw', version='1')
+
+from gi.repository import Adw, Gtk, Gio, Pango, GObject
+
+Adw.init()
+
+class ExampleWindow(Gtk.ApplicationWindow):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.set_title(title='Guía 4')
+        self.set_default_size(width=int(1366 / 2), height=int(768 / 2))
+        self.set_size_request(width=int(1366 / 2), height=int(768 / 2))
+
+        header_bar = Gtk.HeaderBar.new()
+        self.set_titlebar(titlebar=header_bar)
+
+        menu_button_model = Gio.Menu()
+        menu_button_model.append('Información', 'app.about')
+
+        menu_button = Gtk.MenuButton.new()
+        menu_button.set_icon_name(icon_name='open-menu-symbolic')
+        menu_button.set_menu_model(menu_model=menu_button_model)
+        header_bar.pack_end(child=menu_button)
+
+        self.box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.set_child(self.box) 
+        self.grid = Gtk.GridView()
+        self.box.append(self.grid)
+
+        self.button_open = Gtk.Button(label="Abrir")
+        self.button_open.connect('clicked', self.open)
+        self.box.append(self.button_open)
+
+        self._native = self.dialog_open()                                       
+
+        self._native.connect("response", self.on_file_open_response)
+    
+    def open(self, button):
+
+        self._native.show()
+    
+    def dialog_open(self): 
+        return Gtk.FileChooserNative(title="Open Folder",
+                                    transient_for = self.get_root(),
+                                    action=Gtk.FileChooserAction.SELECT_FOLDER,
+                                    accept_label="_Open",
+                                    cancel_label="_Cancel",
+                                    )
+    
+    def on_file_open_response(self, native, response):
+        if response == Gtk.ResponseType.ACCEPT:
+            _path = native.get_file().get_path()
+            print(_path)
+
+        return _path
+    
+    def directorio(self):
+        path = self.on_file_open_response
+        directorio = path
+        directorio = pathlib.Path(directorio)
+        archivos_mol = [fichero.name for fichero in directorio.iterdir() if
+        directorio.glob("*.mol")]
+        return archivos_mol
+
+class DropDown(GObject.Object):
+    __gtype_name__ = 'Widget'
+
+    def __init__(self, name):
+        super().__init__()
+        self._name = name
+        
+    @GObject.Property
+    def name(self):
+        return self._name
+            
+class MainWindow(Gtk.ApplicationWindow):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        data_to_show = self.directorio
+        self.dropdown_model = Gio.ListStore(item_type=DropDown)
+        self.sort_model_widget  = Gtk.SortListModel(model=self.dropdown_model) # FIXME: Gtk.Sorter?
+        self.filter_model_widget = Gtk.FilterListModel(model=self.sort_model_widget)
+        self.filter_widget = Gtk.CustomFilter.new(self._do_filter_method_view, self.filter_model_widget)
+        self.filter_model_widget.set_filter(self.filter_widget)
+        for names in data_to_show:
+            self.dropdown_model.append(DropDown(name=names))
+        dropdown_factory = Gtk.SignalListItemFactory()
+        dropdown_factory.connect("setup", self._on_dropdown_factory_setup)
+        dropdown_factory.connect("bind", self._on_dropdown_factory_bind)
+
+        self.dropdown = Gtk.DropDown(model=self.dropdown_model, factory=dropdown_factory)
+        
+        self.dropdown.set_enable_search(True)
+        self.dropdown.connect("notify::selected-item", self._on_selected_widget)
+        self.main_vertical_box.append(self.dropdown)
+        
+    def _on_dropdown_factory_setup(self, factory, list_item):
+        box = Gtk.Box(spacing=50, orientation=Gtk.Orientation.HORIZONTAL)
+        label = Gtk.Label()
+        box.append(label)
+        list_item.set_child(box)
+
+    def _on_dropdown_factory_bind(self, factory, list_item):
+        box = list_item.get_child()
+        label = box.get_first_child()
+        method = list_item.get_item()
+        label.set_text(method.name)
+
+    def on_print_button_clicked(self,p_button, dropdown):
+        print(dropdown.get_selected_item()._name)
+
+
+
+class ExampleApplication(Adw.Application):
+
+    def __init__(self):
+        super().__init__(application_id='cl.com.Example',
+                         flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+        self.create_action('quit', self.exit_app, ['<primary>q'])
+        self.create_action('about', self.on_about_action)
+
+    def do_activate(self):
+        win = self.props.active_window
+        if not win:
+            win = ExampleWindow(application=self)
+        win.present()
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+
+    def do_shutdown(self):
+        Gtk.Application.do_shutdown(self)
+
+    def on_about_action(self, action, param):
+        self.aboutdialog = Gtk.AboutDialog.new()
+        self.aboutdialog.set_authors(["Amanda Pérez"])
+        self.aboutdialog.set_program_name("Visualización de molécula")
+        self.aboutdialog.set_visible(True)
+
+        
+
+    def exit_app(self, action, param):
+        self.quit()
+
+    def create_action(self, name, callback, shortcuts=None):
+        action = Gio.SimpleAction.new(name, None)
+        action.connect('activate', callback)
+        self.add_action(action)
+        if shortcuts:
+            self.set_accels_for_action(f'app.{name}', shortcuts)
+
+
+if __name__ == '__main__':
+    import sys
+
+    app = ExampleApplication()
+    app.run(sys.argv)
